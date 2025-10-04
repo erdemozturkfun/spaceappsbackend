@@ -1,31 +1,22 @@
 from fastapi import FastAPI
 import demosearch
 from faiss import IndexFlatL2
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
+from transformers import pipeline
+from sentence_transformers import SentenceTransformer
 import numpy as np
 import pandas as pd
 import os
 import json
-app = FastAPI()
 
-embeddings = None
-index = None
-metadata_df = None
-summarizer = None
-edges = None
+app = FastAPI()
 
 
 @app.on_event("startup")
 async def startup_event():
-    global embeddings, index, metadata_df, summarizer, edges
-    import numpy as np
-    import pandas as pd
-    from faiss import IndexFlatL2
-    from transformers import pipeline
-    import demosearch
-
     embeddings = np.load('embeddings.npy')
     metadata_df = pd.read_csv("newmetadata.csv")
+
+    embedder = SentenceTransformer("all-MiniLM-L6-v2")
 
     index = IndexFlatL2(embeddings.shape[1])
     index.add(embeddings)
@@ -40,6 +31,15 @@ async def startup_event():
 
     summarizer = pipeline(task="summarization",
                           model="facebook/bart-large-cnn")
+
+    # store in FastAPI state instead of globals
+    app.state.embeddings = embeddings
+    app.state.index = index
+    app.state.metadata_df = metadata_df
+    app.state.summarizer = summarizer
+    app.state.edges = edges
+    app.state.embedder = embedder
+
     print("✅ Startup finished, model loaded")
 
 
@@ -49,15 +49,26 @@ def read_root(args: str = "Hello"):
 
 
 @app.get("/summary")
-def get_Summary(query: str):
+def get_summary(query: str):
+    embedder = app.state.embedder
+    index = app.state.index
+    metadata_df = app.state.metadata_df
+    summarizer = app.state.summarizer
 
-    print("hi")
-    searches = demosearch.search(embeddings, index, metadata_df)
+    query_embed = embedder.encode([query])
+    searches = demosearch.search(query_embed, index, metadata_df, top_k=15)
+    searches = demosearch.deduplicate_results_by_paper(searches)
+
     return demosearch.createSummary(searches, summarizer)
 
 
 @app.get("/graph")
 def createGraph(query: str):
-    searches = demosearch.search(embeddings, index, metadata_df)
-    searches = demosearch.deduplicate_results_by_paper(searches)
-    return demosearch.build_subgraph_from_search(searches, edges, metadata_df)
+    embedder = app.state.embedder
+    index = app.state.index
+    metadata_df = app.state.metadata_df
+    edges = app.state.edges
+    query_embed = embedder.encode([query])
+    searches = demosearch.search(query_embed, index, metadata_df)
+    deduped = demosearch.deduplicate_results_by_paper(searches)
+    return demosearch.build_subgraph_from_search(deduped, edges, metadata_df)

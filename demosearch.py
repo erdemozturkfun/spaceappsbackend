@@ -40,21 +40,36 @@ def deduplicate_results_by_paper(search_results):
 def build_subgraph_from_search(search_results, edges_dict, metadata_df, max_neighbors=5):
 
     G = nx.DiGraph()
-
+    paper_to_idx = {}
     for res in search_results:
-        idx = int(res['embedid'])
-        G.add_node(idx, paper_id=res['paper_id'],
-                   title=res["title"], url=res["url"])
-
+        paper_id = res['paper_id']
+        if paper_id not in paper_to_idx:
+            node_id = len(paper_to_idx)
+            paper_to_idx[paper_id] = node_id
+            G.add_node(node_id, paper_id=paper_id,
+                       title=res["title"], url=res["url"], sections=[res.get('section')] if 'section' in res else [])
+        else:
+            node_id = paper_to_idx[paper_id]
+            if 'section' in res and res['section'] not in G.nodes[node_id]['section']:
+                G.nodes[node_id]['sections'].append(res['section'])
+        idx = res['embedid']
         neighbors = edges_dict.get(str(idx), [])[:max_neighbors]
-        print(edges_dict)
+        neighbor_papers = set()
         for n_idx in neighbors:
             n_idx = int(n_idx)
-            print("ok")
+
             neighbor_meta = metadata_df.iloc[n_idx]
-            G.add_node(n_idx, paper_id=neighbor_meta['paper_id'], section=neighbor_meta.get(
-                'section', ''), url=neighbor_meta.get('url', ''), title=neighbor_meta.get('title', ''))
-            G.add_edge(idx, n_idx)
+            n_paper_id = neighbor_meta['paper_id']
+
+            if n_paper_id not in paper_to_idx:
+                n_node_id = len(paper_to_idx)
+                paper_to_idx[n_paper_id] = n_node_id
+                G.add_node(n_node_id, paper_id=n_paper_id,
+                           title=neighbor_meta.get('title', ''),
+                           url=neighbor_meta.get('url', ''))
+            else:
+                n_node_id = paper_to_idx[n_paper_id]
+            G.add_edge(node_id, n_node_id)
 
     from networkx.readwrite import json_graph
     graph_json = json_graph.node_link_data(G)
