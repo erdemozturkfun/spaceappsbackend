@@ -3,7 +3,7 @@ from transformers import pipeline, Pipeline
 
 
 def search(embed, index, metadata_df, top_k=5, mission_phases=["Orbit", "Takeoff", "Moon Surface", "Mars Surface"], years="1945#2025"):
-    years = years.split("#")
+    years = years.split("-")
     startingYear = int(years[0])
     endingYear = int(years[1])
 
@@ -84,12 +84,11 @@ def createEdges(embed, index, k):
     return edges
 
 
-def createSummary(results, summarizer: Pipeline):
+def createSummary(results, summary_df):
     summaries = []
     for result in results:
 
-        text = result['text']
-        summary = summarizer([text])[0]['summary_text']
+        summary = summary_df.iloc[int(result['embedid'])]['summary']
         summaries.append(
             f"This paper ({result['paper_id']}, {result['section']}) says {summary}.")
 
@@ -97,19 +96,18 @@ def createSummary(results, summarizer: Pipeline):
 
 
 def get_full_paper(metadata_df, paper_id):
-    sections = metadata_df[metadata_df['paper_id'] == paper_id]['text']
-    full_text = " ".join(sections)
-    return full_text
+    sections = metadata_df[metadata_df['paper_id'] == paper_id]['embedid']
+    sections
+    return sections
 
 
-def summarize_full_paper(full_text, summarizer, chunk_size=1024, overlap=100):
-    tokens = full_text.split()
+def summarize_full_paper(sections, summary_df, summarizer):
+
     summaries = []
-    while start < len(tokens):
-        chunk = " ".join(tokens[start:start+chunk_size])
-        summary = summarizer(chunk)[0]['summary_text']
+    for chunk in sections:
+        summary = summary_df.iloc[int(chunk)]['summary']
         summaries.append(summary)
-        start += chunk_size - overlap
+
     summaries = " ".join(summaries)
     full_summary = summarizer(summaries)[0]['summary_text']
     return full_summary
